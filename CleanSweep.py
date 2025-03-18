@@ -3,18 +3,19 @@ import numpy as np
 import logging
 from sklearn.impute import SimpleImputer
 
-# Configure logging to display the time, log level, and message.
+# Configure logging to display time, level, and message.
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 def check_data_quality(df):
     """
     Compute initial data quality metrics for the DataFrame.
-    Returns a dictionary containing:
-        - missing_values: Missing values count per column.
-        - duplicates: Total number of duplicate rows.
-        - total_rows: Total number of rows.
-        - memory_usage: Memory usage in MB.
+    
+    Returns a dictionary with:
+      - missing_values: Count of missing values per column.
+      - duplicates: Total duplicate rows.
+      - total_rows: Total number of rows.
+      - memory_usage: DataFrame memory usage in MB.
     """
     quality_report = {
         'missing_values': df.isnull().sum().to_dict(),
@@ -27,17 +28,17 @@ def check_data_quality(df):
 
 def standardize_datatypes(df):
     """
-    Standardize datatypes in the DataFrame by:
-        - Converting object columns to datetime where possible.
-        - If datetime conversion is not fully successful, attempt numeric conversion.
+    Standardize datatypes in the DataFrame:
+      - Convert object columns to datetime (using errors='coerce').
+      - If datetime conversion fails, attempt numeric conversion after cleaning common symbols.
+    
     Logs the conversion status for each column.
     """
     for column in df.columns:
         if df[column].dtype == 'object':
             try:
-                # Convert to datetime; use errors='coerce' to convert non-date strings to NaT.
+                # Attempt to convert to datetime
                 df[column] = pd.to_datetime(df[column], errors='coerce')
-                # Log based on conversion success:
                 if df[column].notnull().all():
                     logging.info(f"Column '{column}' converted entirely to datetime.")
                 else:
@@ -45,7 +46,7 @@ def standardize_datatypes(df):
             except Exception as e:
                 logging.error(f"Error converting column '{column}' to datetime: {e}")
                 try:
-                    # Attempt numeric conversion after cleaning common symbols
+                    # Clean symbols and attempt numeric conversion
                     df[column] = pd.to_numeric(df[column].str.replace('$', '', regex=False).str.replace(',', '', regex=False), errors='coerce')
                     logging.info(f"Column '{column}' converted to numeric.")
                 except Exception as e2:
@@ -57,19 +58,18 @@ def handle_missing_values(df, numeric_strategy='median', categorical_strategy='m
     Impute missing values in the DataFrame using customizable strategies.
     
     Parameters:
-        df: pandas DataFrame.
-        numeric_strategy: Imputation strategy for numeric columns (e.g., 'mean', 'median', 'constant').
-        categorical_strategy: Imputation strategy for categorical columns (e.g., 'most_frequent', 'constant').
-        fill_value: Value to use when strategy is 'constant'.
-        log_changes: If True, logs the number of missing values filled per column.
-    
+      - numeric_strategy: Strategy for numeric imputation ('median', 'mean', 'constant', etc.).
+      - categorical_strategy: Strategy for categorical imputation ('most_frequent', 'constant', etc.).
+      - fill_value: Value to use when strategy is 'constant'.
+      - log_changes: If True, returns a report of imputation changes.
+      
     Returns:
-        If log_changes is True: tuple (df, imputation_report)
-        Otherwise: the modified DataFrame.
+      - If log_changes is True: tuple (df, imputation_report)
+      - Otherwise: the modified DataFrame.
     """
     imputation_report = {}
     
-    # Handle numeric columns
+    # Impute numeric columns
     numeric_columns = df.select_dtypes(include=['int64', 'float64']).columns
     if len(numeric_columns) > 0:
         if numeric_strategy == 'constant' and fill_value is not None:
@@ -83,7 +83,7 @@ def handle_missing_values(df, numeric_strategy='median', categorical_strategy='m
             imputation_report['numeric'] = (before_numeric - after_numeric).to_dict()
             logging.info(f"Numeric imputation changes: {imputation_report['numeric']}")
     
-    # Handle categorical columns
+    # Impute categorical columns
     categorical_columns = df.select_dtypes(include=['object']).columns
     if len(categorical_columns) > 0:
         if categorical_strategy == 'constant' and fill_value is not None:
@@ -105,11 +105,11 @@ def handle_missing_values(df, numeric_strategy='median', categorical_strategy='m
 def remove_outliers(df):
     """
     Identify and cap outliers in numeric columns using the IQR method.
-    Outliers are not removed but clipped to lower and upper bounds.
+    Instead of removing rows, values outside [Q1 - 1.5*IQR, Q3 + 1.5*IQR] are clipped.
     
     Returns:
-        - The modified DataFrame.
-        - A dictionary with the count of outliers capped for each numeric column.
+      - The modified DataFrame.
+      - A dictionary with counts of outliers capped per numeric column.
     """
     numeric_columns = df.select_dtypes(include=['int64', 'float64']).columns
     outliers_removed = {}
@@ -121,10 +121,8 @@ def remove_outliers(df):
         lower_bound = Q1 - 1.5 * IQR
         upper_bound = Q3 + 1.5 * IQR
         
-        # Count the number of outliers before clipping
+        # Count outliers before clipping
         outlier_count = df[(df[column] < lower_bound) | (df[column] > upper_bound)].shape[0]
-        
-        # Clip values to be within the computed bounds
         df[column] = df[column].clip(lower=lower_bound, upper=upper_bound)
         
         if outlier_count > 0:
@@ -135,14 +133,15 @@ def remove_outliers(df):
 
 def validate_cleaning(df, original_shape, cleaning_report):
     """
-    Validate the cleaning process by comparing the cleaned DataFrame with the original data.
-    Reports:
-        - Rows remaining.
-        - Total missing values remaining.
-        - Duplicates remaining.
-        - Data loss percentage (if rows have been dropped).
+    Validate the cleaning process by comparing the cleaned DataFrame to the original data.
     
-    Updates and returns the cleaning report.
+    Reports:
+      - Rows remaining.
+      - Total missing values remaining.
+      - Duplicates remaining.
+      - Data loss percentage (if rows were dropped).
+      
+    Updates and returns the cleaning report with these metrics.
     """
     validation_results = {
         'rows_remaining': len(df),
@@ -161,34 +160,28 @@ def automated_cleaning_pipeline(df,
                                 fill_value=None, 
                                 log_imputation=True):
     """
-    Execute the full automated data cleaning pipeline:
-        1. Compute initial data quality metrics.
-        2. Standardize data types.
-        3. Impute missing values with user-specified strategies.
-        4. Identify and cap outliers.
-        5. Validate the cleaning process.
-    
-    Parameters:
-        df: Input DataFrame.
-        numeric_imputation_strategy: Strategy for numeric imputation.
-        categorical_imputation_strategy: Strategy for categorical imputation.
-        fill_value: Value for constant imputation if required.
-        log_imputation: Whether to log imputation details.
+    Execute the complete automated cleaning pipeline:
+      1. Compute initial quality metrics.
+      2. Standardize data types.
+      3. Impute missing values (using specified strategies).
+      4. Identify and cap outliers.
+      5. Validate the cleaning process.
     
     Returns:
-        A tuple containing the cleaned DataFrame and a comprehensive cleaning report.
+      - The cleaned DataFrame.
+      - A comprehensive cleaning report (as a dictionary).
     """
     logging.info("Starting automated cleaning pipeline.")
     original_shape = df.shape
     cleaning_report = {}
 
-    # Step 1: Initial data quality check
+    # Step 1: Initial quality check
     cleaning_report['initial_quality'] = check_data_quality(df)
     
     # Step 2: Standardize data types
     df = standardize_datatypes(df)
     
-    # Step 3: Handle missing values with flexible imputation strategies
+    # Step 3: Handle missing values
     df, imputation_report = handle_missing_values(df, 
                                                   numeric_strategy=numeric_imputation_strategy, 
                                                   categorical_strategy=categorical_imputation_strategy, 
@@ -196,32 +189,79 @@ def automated_cleaning_pipeline(df,
                                                   log_changes=log_imputation)
     cleaning_report['imputation_report'] = imputation_report
     
-    # Step 4: Remove (clip) outliers using the IQR method
+    # Step 4: Remove (clip) outliers using IQR method
     df, outliers = remove_outliers(df)
     cleaning_report['outliers_removed'] = outliers
     
-    # Step 5: Validate the cleaning process
+    # Step 5: Validate cleaning process
     cleaning_report = validate_cleaning(df, original_shape, cleaning_report)
     
     logging.info("Automated cleaning pipeline completed.")
     return df, cleaning_report
 
-if __name__ == "__main__":
-    # Example usage: Create a sample DataFrame to demonstrate the cleaning pipeline
-    data = {
-        'A': [1, 2, np.nan, 4, 100],  # Numeric column with a potential outlier (100)
-        'B': ['2020-01-01', 'not a date', '2020-03-01', None, '2020-05-01'],  # Mixed date strings
-        'C': ['a', 'b', None, 'b', 'a']  # Categorical column with missing value
-    }
-    df_sample = pd.DataFrame(data)
+def print_cleaning_report(report):
+    """
+    Print a human-readable cleaning report.
+    """
+    print("\nCLEANING REPORT")
+    print("=" * 40)
     
-    # Run the cleaning pipeline on the sample DataFrame
-    cleaned_df, report = automated_cleaning_pipeline(
-        df_sample,
+    # Initial Quality Metrics
+    if 'initial_quality' in report:
+        print("\nInitial Quality:")
+        for key, value in report['initial_quality'].items():
+            if isinstance(value, dict):
+                print(f"  {key.replace('_', ' ').title()}:")
+                for subkey, subval in value.items():
+                    print(f"    {subkey}: {subval}")
+            else:
+                print(f"  {key.replace('_', ' ').title()}: {value}")
+    
+    # Imputation Report
+    if 'imputation_report' in report:
+        print("\nImputation Report:")
+        for key, value in report['imputation_report'].items():
+            if isinstance(value, dict):
+                print(f"  {key.replace('_', ' ').title()}:")
+                for subkey, subval in value.items():
+                    print(f"    {subkey}: {subval}")
+            else:
+                print(f"  {key.replace('_', ' ').title()}: {value}")
+    
+    # Outliers Removed
+    if 'outliers_removed' in report:
+        print("\nOutliers Removed:")
+        for key, value in report['outliers_removed'].items():
+            print(f"  {key}: {value}")
+    
+    # Validation Metrics
+    if 'validation' in report:
+        print("\nValidation:")
+        for key, value in report['validation'].items():
+            print(f"  {key.replace('_', ' ').title()}: {value}")
+    
+    print("=" * 40)
+
+# If the module is executed directly, run an example cleaning process
+if __name__ == '__main__':
+    # For demonstration, attempt to load 'data.csv'. Adjust the filename as needed.
+    try:
+        df = pd.read_csv('data.csv')
+        logging.info("Loaded 'data.csv' successfully.")
+    except Exception as e:
+        logging.error("Error loading 'data.csv'. Please ensure the file exists in the current directory.")
+        raise e
+
+    # Run the cleaning pipeline with default imputation strategies
+    cleaned_df, cleaning_report = automated_cleaning_pipeline(
+        df,
         numeric_imputation_strategy='median',
         categorical_imputation_strategy='most_frequent'
     )
-    
-    # Log the final cleaning report and display the cleaned DataFrame
-    logging.info(f"Cleaning Report: {report}")
-    print(cleaned_df)
+
+    # Print a human-readable cleaning report
+    print_cleaning_report(cleaning_report)
+
+    # Optionally, save the cleaned data to a CSV file
+    cleaned_df.to_csv('data_cleaned.csv', index=False)
+    logging.info("Cleaned data saved to 'data_cleaned.csv'.")
