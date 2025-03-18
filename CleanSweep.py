@@ -172,4 +172,56 @@ def automated_cleaning_pipeline(df,
         df: Input DataFrame.
         numeric_imputation_strategy: Strategy for numeric imputation.
         categorical_imputation_strategy: Strategy for categorical imputation.
-        fill_valu
+        fill_value: Value for constant imputation if required.
+        log_imputation: Whether to log imputation details.
+    
+    Returns:
+        A tuple containing the cleaned DataFrame and a comprehensive cleaning report.
+    """
+    logging.info("Starting automated cleaning pipeline.")
+    original_shape = df.shape
+    cleaning_report = {}
+
+    # Step 1: Initial data quality check
+    cleaning_report['initial_quality'] = check_data_quality(df)
+    
+    # Step 2: Standardize data types
+    df = standardize_datatypes(df)
+    
+    # Step 3: Handle missing values with flexible imputation strategies
+    df, imputation_report = handle_missing_values(df, 
+                                                  numeric_strategy=numeric_imputation_strategy, 
+                                                  categorical_strategy=categorical_imputation_strategy, 
+                                                  fill_value=fill_value, 
+                                                  log_changes=log_imputation)
+    cleaning_report['imputation_report'] = imputation_report
+    
+    # Step 4: Remove (clip) outliers using the IQR method
+    df, outliers = remove_outliers(df)
+    cleaning_report['outliers_removed'] = outliers
+    
+    # Step 5: Validate the cleaning process
+    cleaning_report = validate_cleaning(df, original_shape, cleaning_report)
+    
+    logging.info("Automated cleaning pipeline completed.")
+    return df, cleaning_report
+
+if __name__ == "__main__":
+    # Example usage: Create a sample DataFrame to demonstrate the cleaning pipeline
+    data = {
+        'A': [1, 2, np.nan, 4, 100],  # Numeric column with a potential outlier (100)
+        'B': ['2020-01-01', 'not a date', '2020-03-01', None, '2020-05-01'],  # Mixed date strings
+        'C': ['a', 'b', None, 'b', 'a']  # Categorical column with missing value
+    }
+    df_sample = pd.DataFrame(data)
+    
+    # Run the cleaning pipeline on the sample DataFrame
+    cleaned_df, report = automated_cleaning_pipeline(
+        df_sample,
+        numeric_imputation_strategy='median',
+        categorical_imputation_strategy='most_frequent'
+    )
+    
+    # Log the final cleaning report and display the cleaned DataFrame
+    logging.info(f"Cleaning Report: {report}")
+    print(cleaned_df)
